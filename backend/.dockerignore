@@ -1,0 +1,7 @@
+vendor/
+var/cache/
+var/log/
+.env.local
+node_modules/
+.git/
+var/data.db
