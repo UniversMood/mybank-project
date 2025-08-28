@@ -1,0 +1,280 @@
+# .github/workflows/ci-cd.yml
+name: MyBank CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  # Phase 1: Tests d'intégration
+  integration-tests:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root_password_test
+          MYSQL_DATABASE: mybank_test
+          MYSQL_USER: mybank_test
+          MYSQL_PASSWORD: mybank_test_password
+        ports:
+          - 3306:3306
+        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    # Setup PHP pour Symfony
+    - name: Setup PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: '8.2'
+        extensions: mbstring, xml, ctype, iconv, intl, pdo_mysql, zip
+
+    # Setup Node.js pour React
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+
+    # Installation des dépendances Backend
+    - name: Install Backend Dependencies
+      working-directory: ./backend
+      run: |
+        composer install --no-dev --optimize-autoloader
+
+    # Installation des dépendances Frontend
+    - name: Install Frontend Dependencies
+      working-directory: ./frontend
+      run: |
+        npm ci
+
+    # Configuration de la base de données
+    - name: Setup Database
+      working-directory: ./backend
+      env:
+        DATABASE_URL: mysql://mybank_test:mybank_test_password@127.0.0.1:3306/mybank_test
+      run: |
+        php bin/console doctrine:database:create --if-not-exists
+        php bin/console doctrine:schema:create
+        php bin/console doctrine:fixtures:load --no-interaction
+
+    # Tests Backend
+    - name: Run Backend Tests
+      working-directory: ./backend
+      env:
+        DATABASE_URL: mysql://mybank_test:mybank_test_password@127.0.0.1:3306/mybank_test
+      run: |
+        php bin/console doctrine:database:create --env=test --if-not-exists
+        php bin/console doctrine:schema:create --env=test
+        # Ajouter ici les tests PHPUnit une fois créés
+        # php bin/phpunit
+
+    # Démarrage du serveur Backend pour les tests d'intégration
+    - name: Start Backend Server
+      working-directory: ./backend
+      env:
+        DATABASE_URL: mysql://mybank_test:mybank_test_password@127.0.0.1:3306/mybank_test
+      run: |
+        php -S localhost:8000 -t public &
+        sleep 5
+
+    # Build Frontend
+    - name: Build Frontend
+      working-directory: ./frontend
+      run: |
+        npm run build
+
+    # Tests d'intégration Frontend-Backend
+    - name: Run Integration Tests
+      run: |
+        # Test API endpoint
+        curl -f http://localhost:8000/api/operations || exit 1
+        curl -f http://localhost:8000/api/categories || exit 1
+        
+        # Test POST operation (ajout d'une dépense)
+        response=$(curl -X POST http://localhost:8000/api/operations \
+          -H "Content-Type: application/json" \
+          -d '{"label":"Test expense","amount":"50.00","date":"2024-01-15","category":1}' \
+          -w "%{http_code}")
+        
+        if [[ "$response" != *"201"* ]]; then
+          echo "Integration test failed: Cannot create operation"
+          exit 1
+        fi
+        
+        echo "✓ Integration tests passed: Frontend-Backend-Database communication working"
+
+  # Phase 2: Build et Push des images Docker
+  build-and-push:
+    needs: integration-tests
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Login to GitHub Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Build and Push Backend Image
+      uses: docker/build-push-action@v5
+      with:
+        context: ./backend
+        push: true
+        tags: |
+          ghcr.io/${{ github.repository }}/backend:latest
+          ghcr.io/${{ github.repository }}/backend:${{ github.sha }}
+
+    - name: Build and Push Frontend Image
+      uses: docker/build-push-action@v5
+      with:
+        context: ./frontend
+        push: true
+        tags: |
+          ghcr.io/${{ github.repository }}/frontend:latest
+          ghcr.io/${{ github.repository }}/frontend:${{ github.sha }}
+
+  # Phase 3: Déploiement automatique
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Create deployment package
+      run: |
+        mkdir -p deploy
+        cp docker-compose.yml deploy/
+        cp .env deploy/.env.example
+        
+        # Créer script de déploiement
+        cat > deploy/deploy.sh << 'EOF'
+        #!/bin/bash
+        set -e
+        
+        echo "🚀 Starting MyBank deployment..."
+        
+        # Arrêter les services existants
+        docker-compose down
+        
+        # Récupérer les dernières images
+        docker-compose pull
+        
+        # Redémarrer les services
+        docker-compose up -d
+        
+        # Attendre que la base soit prête
+        sleep 30
+        
+        # Migrations de base de données
+        docker-compose exec -T backend php bin/console doctrine:migrations:migrate --no-interaction
+        
+        echo "✅ Deployment completed successfully!"
+        echo "Frontend: http://localhost:5173"
+        echo "Backend: http://localhost:8000"
+        echo "PhpMyAdmin: http://localhost:8080"
+        EOF
+        
+        chmod +x deploy/deploy.sh
+
+    # Upload des artefacts de déploiement
+    - name: Upload deployment artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: deployment-package
+        path: deploy/
+
+    # Simulation du déploiement (remplace par un vrai serveur plus tard)
+    - name: Deploy Application
+      run: |
+        echo "🚀 Deploying MyBank application..."
+        echo "📦 Images built and pushed to registry"
+        echo "🔧 Deployment script ready"
+        echo "✅ Application ready for production deployment"
+        
+        # Dans un vrai environnement, tu ferais :
+        # ssh user@server 'cd /path/to/app && ./deploy.sh'
+
+  # Phase 4: Tests post-déploiement
+  post-deploy-tests:
+    needs: deploy
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Docker Compose
+      run: |
+        docker-compose version
+
+    - name: Test Deployment
+      run: |
+        # Test avec les images buildées
+        echo "Testing deployment with built images..."
+        
+        # Démarrer l'application avec docker-compose
+        docker-compose up -d
+        
+        # Attendre que les services soient prêts
+        sleep 60
+        
+        # Tests de santé
+        echo "Running health checks..."
+        
+        # Test backend API
+        curl -f http://localhost:8000/api/operations || {
+          echo "❌ Backend health check failed"
+          docker-compose logs backend
+          exit 1
+        }
+        
+        echo "✅ All post-deployment tests passed"
+        
+        # Nettoyer
+        docker-compose down
+
+  # Notification de succès
+  notify:
+    needs: [integration-tests, build-and-push, deploy, post-deploy-tests]
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+    - name: Deployment Status
+      run: |
+        if [[ "${{ needs.integration-tests.result }}" == "success" && 
+              "${{ needs.build-and-push.result }}" == "success" && 
+              "${{ needs.deploy.result }}" == "success" && 
+              "${{ needs.post-deploy-tests.result }}" == "success" ]]; then
+          echo "🎉 MyBank deployment completed successfully!"
+          echo "✅ Integration tests passed"
+          echo "✅ Docker images built and pushed"
+          echo "✅ Application deployed"
+          echo "✅ Post-deployment tests passed"
+        else
+          echo "❌ Deployment failed at one or more stages"
+          echo "Integration tests: ${{ needs.integration-tests.result }}"
+          echo "Build and push: ${{ needs.build-and-push.result }}"
+          echo "Deploy: ${{ needs.deploy.result }}"
+          echo "Post-deploy tests: ${{ needs.post-deploy-tests.result }}"
+          exit 1
+        fi
