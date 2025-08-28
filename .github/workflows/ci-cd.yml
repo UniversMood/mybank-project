@@ -7,7 +7,6 @@ on:
     branches: [ main ]
 
 jobs:
-  # Tests d'intégration simplifiés
   integration-tests:
     runs-on: ubuntu-latest
     services:
@@ -32,95 +31,41 @@ jobs:
         php-version: '8.2'
         extensions: mbstring, xml, ctype, iconv, intl, pdo_mysql, zip
 
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '20'
-
-    # Tests de base sans Composer pour éviter les erreurs
-    - name: Validate project structure
+    - name: Create Backend Environment File
+      working-directory: ./backend
       run: |
-        echo "Checking project structure..."
-        ls -la
-        ls -la backend/
-        ls -la frontend/
-        echo "✅ Project structure validated"
+        cat > .env << EOF
+        APP_ENV=test
+        APP_SECRET=test_secret_key_for_ci
+        DATABASE_URL=mysql://mybank_test:mybank_test_password@127.0.0.1:3306/mybank_test
+        EOF
 
-    - name: Install Frontend Dependencies
-      working-directory: ./frontend
+    - name: Install Backend Dependencies
+      working-directory: ./backend
       run: |
-        npm install
-        npm run build
+        composer install --no-dev --optimize-autoloader
 
-    - name: Test Database Connection
+    - name: Setup Database
+      working-directory: ./backend
       run: |
-        mysql -h 127.0.0.1 -u mybank_test -pmybank_test_password -e "SHOW DATABASES;" mybank_test
-        echo "✅ Database connection successful"
+        php bin/console doctrine:database:create --if-not-exists
+        php bin/console doctrine:schema:create
 
-    - name: Integration Test Simulation
+    - name: Test API Endpoints
+      working-directory: ./backend
       run: |
-        echo "🔄 Running integration tests..."
-        echo "✅ Frontend builds successfully"
-        echo "✅ Database connection works"
-        echo "✅ All integration tests passed"
+        php -S localhost:8000 -t public &
+        sleep 5
+        curl -f http://localhost:8000/api/operations || exit 1
+        echo "Integration tests passed"
 
-  # Build des images Docker
-  build-docker:
+  deploy-simulation:
     needs: integration-tests
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
     
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Test Docker Build
+    - name: Deployment Simulation
       run: |
-        echo "🐳 Testing Docker configuration..."
-        
-        # Test si les Dockerfiles existent
-        if [ -f "backend/Dockerfile" ]; then
-          echo "✅ Backend Dockerfile found"
-        else
-          echo "❌ Backend Dockerfile missing"
-        fi
-        
-        if [ -f "frontend/Dockerfile" ]; then
-          echo "✅ Frontend Dockerfile found"
-        else
-          echo "❌ Frontend Dockerfile missing"
-        fi
-        
-        if [ -f "docker-compose.yml" ]; then
-          echo "✅ docker-compose.yml found"
-        else
-          echo "❌ docker-compose.yml missing"
-        fi
-
-  # Déploiement simulé
-  deploy:
-    needs: build-docker
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
-    
-    steps:
-    - name: Simulate Deployment
-      run: |
-        echo "🚀 Simulating deployment process..."
-        echo "📦 Application would be deployed to staging/production"
-        echo "🔧 Services would be restarted automatically"
-        echo "✅ Deployment simulation completed"
-
-  # Notification finale
-  notify:
-    needs: [integration-tests, build-docker, deploy]
-    runs-on: ubuntu-latest
-    if: always()
-    
-    steps:
-    - name: Deployment Status
-      run: |
-        echo "🎉 MyBank CI/CD Pipeline completed!"
-        echo "✅ Integration tests: ${{ needs.integration-tests.result }}"
-        echo "✅ Docker build: ${{ needs.build-docker.result }}"
-        echo "✅ Deployment: ${{ needs.deploy.result }}"
+        echo "Application would be deployed via Docker"
+        echo "Services would be restarted automatically"
