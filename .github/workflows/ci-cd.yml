@@ -14,7 +14,7 @@ jobs:
         image: mysql:8.0
         env:
           MYSQL_ROOT_PASSWORD: root_password_test
-          MYSQL_DATABASE: mybank_test
+          MYSQL_DATABASE: mybank_test  # Base principale
           MYSQL_USER: mybank_test
           MYSQL_PASSWORD: mybank_test_password
         ports:
@@ -42,24 +42,13 @@ jobs:
       working-directory: ./backend
       run: |
         cat > .env << 'EOL'
-        APP_ENV=ci
+        APP_ENV=test  # ✅ Laissez "test" pour que Symfony ajoute _test
         APP_SECRET=test_secret_key_for_ci_pipeline
         DATABASE_URL="mysql://mybank_test:mybank_test_password@127.0.0.1:3306/mybank_test?serverVersion=8.0&charset=utf8mb4"
         CORS_ALLOW_ORIGIN='^https?://(localhost|127\.0\.0\.1)(:[0-9]+)?$'
         EOL
         echo "Backend .env file created for CI/CD"
         cat .env
-
-    - name: Create CI environment doctrine config
-      working-directory: ./backend
-      run: |
-        mkdir -p config/packages/ci
-        cat > config/packages/ci/doctrine.yaml << 'EOL'
-        doctrine:
-            dbal:
-                dbname_suffix: ~
-                url: '%env(resolve:DATABASE_URL)%'
-        EOL
 
     - name: Install Backend Dependencies
       working-directory: ./backend
@@ -76,26 +65,24 @@ jobs:
           sleep 2
         done
 
-    - name: Grant permissions to test user
+    - name: Create test database and grant permissions
       run: |
         mysql -h 127.0.0.1 -u root -proot_password_test << EOF
+        -- Crée la base mybank_test_test que Symfony veut utiliser
+        CREATE DATABASE IF NOT EXISTS mybank_test_test;
+        
+        -- Donne toutes les permissions à l'utilisateur sur les deux bases
         GRANT ALL PRIVILEGES ON mybank_test.* TO 'mybank_test'@'%';
+        GRANT ALL PRIVILEGES ON mybank_test_test.* TO 'mybank_test'@'%';
         FLUSH PRIVILEGES;
         EOF
-
-    - name: Debug database connection
-      working-directory: ./backend
-      run: |
-        echo "=== DEBUG DATABASE CONFIGURATION ==="
-        php -r "echo getenv('DATABASE_URL'); echo PHP_EOL;"
-        php bin/console debug:config doctrine --env=ci
-        mysql -h 127.0.0.1 -u mybank_test -pmybank_test_password -e "SHOW DATABASES;"
-        echo "====================================="
 
     - name: Setup Database
       working-directory: ./backend
       run: |
-        php bin/console doctrine:schema:update --force --env=ci
+        # ✅ Laissez Symfony utiliser mybank_test_test naturellement
+        php bin/console doctrine:database:create --if-not-exists --env=test
+        php bin/console doctrine:schema:create --env=test
 
     - name: Install Frontend Dependencies
       working-directory: ./frontend
