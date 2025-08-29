@@ -41,7 +41,6 @@ jobs:
     - name: Create Backend .env for CI/CD
       working-directory: ./backend
       run: |
-        # Créer un .env spécifique pour les tests CI/CD
         cat > .env << 'EOL'
         APP_ENV=test
         APP_SECRET=test_secret_key_for_ci_pipeline
@@ -58,13 +57,20 @@ jobs:
     - name: Wait for MySQL to be ready
       run: |
         for i in {1..30}; do
-          if mysqladmin ping -h"127.0.0.1" -u"mybank_test" -p"mybank_test_password" --silent; then
+          if mysqladmin ping -h"127.0.0.1" -u"root" -p"root_password_test" --silent; then
             echo "MySQL is ready!"
             break
           fi
           echo "Waiting for MySQL... Attempt $i/30"
           sleep 2
         done
+
+    - name: Grant permissions to test user
+      run: |
+        mysql -h 127.0.0.1 -u root -proot_password_test << EOF
+        GRANT ALL PRIVILEGES ON mybank_test.* TO 'mybank_test'@'%';
+        FLUSH PRIVILEGES;
+        EOF
 
     - name: Setup Database
       working-directory: ./backend
