@@ -1,32 +1,26 @@
 # MyBank - Expense Management Application
 
-A modern expense tracking application built with React and Symfony, containerized with Docker.
+Application de gestion des dépenses développée 
 
-## Features
+## Statut du projet
+- ✅ Backend Symfony avec API REST
+- ✅ Frontend React avec interface utilisateur
+- ✅ Base de données MySQL containerisée
+- ✅ Docker et Docker Compose configurés
+- ✅ Versioning Git/GitHub
+- ✅ Documentation de déploiement
+- ⚠️ CI/CD GitHub Actions (en cours)
 
-- Add and view personal expenses
-- Categorize expenses
-- Real-time expense tracking
-- Responsive design
+## Fonctionnalités implémentées
+- Affichage des dépenses
+- Ajout de nouvelles dépenses
+- Suppression des dépenses
+- Catégorisation
+- Interface responsive
 
-## Tech Stack
-
-- **Frontend**: React + Vite
-- **Backend**: Symfony 6.4 (API)
-- **Database**: MySQL 8.0
-- **Infrastructure**: Docker & Docker Compose
-- **Styling**: Tailwind CSS
-
-## Quick Start
-
-### Prerequisites
-- Docker and Docker Compose
-- Node.js 20+ (for local development)
-- PHP 8.2+ (for local development)
-
-### Development Setup
-
-1. Clone the repository:
+## Démarrage rapide
 ```bash
 git clone https://github.com/UniversMood/mybank-project.git
 cd mybank-project
+docker-compose up backend database -d
+cd frontend && npm install && npm run dev
