@@ -31,26 +31,40 @@ jobs:
         php-version: '8.2'
         extensions: mbstring, xml, ctype, iconv, intl, pdo_mysql, zip
 
-    - name: Create Backend .env file
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+
+    - name: Create Backend .env for CI/CD
+      working-directory: ./backend
       run: |
-        cat > backend/.env << 'EOL'
+        # Créer un .env spécifique pour les tests CI/CD
+        cat > .env << 'EOL'
         APP_ENV=test
         APP_SECRET=test_secret_key_for_ci_pipeline
         DATABASE_URL="mysql://mybank_test:mybank_test_password@127.0.0.1:3306/mybank_test?serverVersion=8.0&charset=utf8mb4"
+        CORS_ALLOW_ORIGIN='^https?://(localhost|127\.0\.0\.1)(:[0-9]+)?$'
         EOL
-        echo "Backend .env file created"
-        cat backend/.env
+        echo "Backend .env file created for CI/CD"
+        cat .env
 
-    - name: Install Backend Dependencies  
+    - name: Install Backend Dependencies
       working-directory: ./backend
-      run: |
-        composer install --no-scripts --no-interaction
+      run: composer install --no-scripts --no-interaction --no-progress
 
-    - name: Verify environment
-      working-directory: ./backend
+    - name: Wait for MySQL to be ready
       run: |
-        php -v
-        php bin/console --version
+        for i in {1..30}; do
+          if mysqladmin ping -h"127.0.0.1" -u"mybank_test" -p"mybank_test_password" --silent; then
+            echo "MySQL is ready!"
+            break
+          fi
+          echo "Waiting for MySQL... Attempt $i/30"
+          sleep 2
+        done
 
     - name: Setup Database
       working-directory: ./backend
@@ -58,17 +72,45 @@ jobs:
         php bin/console doctrine:database:create --if-not-exists
         php bin/console doctrine:schema:create
 
-    - name: Test Integration
+    - name: Install Frontend Dependencies
+      working-directory: ./frontend
+      run: npm ci
+
+    - name: Build Frontend
+      working-directory: ./frontend
+      run: npm run build
+
+    - name: Start Backend Server
+      working-directory: ./backend
       run: |
-        echo "Integration tests completed successfully"
-        echo "Database connection: OK"
-        echo "Symfony console: OK"
+        php -S localhost:8000 -t public &
+        sleep 10
+
+    - name: Check Backend Endpoints
+      run: |
+        curl -f http://localhost:8000/api/operations || exit 1
+        curl -f http://localhost:8000/api/categories || exit 1
+
+    - name: Test POST operation
+      run: |
+        response=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:8000/api/operations \
+          -H "Content-Type: application/json" \
+          -d '{"label":"Test expense","amount":"50.00","date":"2024-01-15","category":1}')
+        
+        if [ "$response" -eq 201 ] || [ "$response" -eq 200 ]; then
+          echo "✓ POST test passed with status $response"
+        else
+          echo "✗ POST test failed with status $response"
+          exit 1
+        fi
+
+    - name: Stop Backend Server
+      run: pkill -f "php -S localhost:8000" || true
 
   deploy-simulation:
     needs: integration-tests
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
-    
     steps:
     - name: Deployment Status
       run: |
