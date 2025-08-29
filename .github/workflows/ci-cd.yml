@@ -14,7 +14,7 @@ jobs:
         image: mysql:8.0
         env:
           MYSQL_ROOT_PASSWORD: root_password_test
-          MYSQL_DATABASE: mybank_test  # ✅ Nom correct
+          MYSQL_DATABASE: mybank_test
           MYSQL_USER: mybank_test
           MYSQL_PASSWORD: mybank_test_password
         ports:
@@ -42,14 +42,24 @@ jobs:
       working-directory: ./backend
       run: |
         cat > .env << 'EOL'
-        APP_ENV=test
+        APP_ENV=ci
         APP_SECRET=test_secret_key_for_ci_pipeline
-        # ✅ Utilisez directement le nom mybank_test
         DATABASE_URL="mysql://mybank_test:mybank_test_password@127.0.0.1:3306/mybank_test?serverVersion=8.0&charset=utf8mb4"
         CORS_ALLOW_ORIGIN='^https?://(localhost|127\.0\.0\.1)(:[0-9]+)?$'
         EOL
         echo "Backend .env file created for CI/CD"
         cat .env
+
+    - name: Create CI environment doctrine config
+      working-directory: ./backend
+      run: |
+        mkdir -p config/packages/ci
+        cat > config/packages/ci/doctrine.yaml << 'EOL'
+        doctrine:
+            dbal:
+                dbname_suffix: ~
+                url: '%env(resolve:DATABASE_URL)%'
+        EOL
 
     - name: Install Backend Dependencies
       working-directory: ./backend
@@ -77,24 +87,15 @@ jobs:
       working-directory: ./backend
       run: |
         echo "=== DEBUG DATABASE CONFIGURATION ==="
-        # Affiche la variable DATABASE_URL
         php -r "echo getenv('DATABASE_URL'); echo PHP_EOL;"
-        
-        # Affiche la configuration Doctrine
-        php bin/console debug:config doctrine
-        
-        # Liste les bases disponibles
+        php bin/console debug:config doctrine --env=ci
         mysql -h 127.0.0.1 -u mybank_test -pmybank_test_password -e "SHOW DATABASES;"
-        
-        # Teste la connexion
-        php bin/console doctrine:query:sql "SELECT 1" || echo "Connection test failed"
         echo "====================================="
 
     - name: Setup Database
       working-directory: ./backend
       run: |
-        # Crée le schéma directement
-        php bin/console doctrine:schema:update --force --env=test
+        php bin/console doctrine:schema:update --force --env=ci
 
     - name: Install Frontend Dependencies
       working-directory: ./frontend
