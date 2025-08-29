@@ -76,8 +76,8 @@ jobs:
     - name: Setup Database
       working-directory: ./backend
       run: |
-        # ✅ La base mybank_test est déjà créée par le service MySQL
-        php bin/console doctrine:schema:create
+        # Crée le schéma directement sans utiliser doctrine:database:create
+        php bin/console doctrine:schema:update --force --env=test
 
     - name: Install Frontend Dependencies
       working-directory: ./frontend
