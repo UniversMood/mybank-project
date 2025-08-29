@@ -79,6 +79,12 @@ jobs:
         # Crée le schéma directement sans utiliser doctrine:database:create
         php bin/console doctrine:schema:update --force --env=test
 
+    - name: Debug database connection
+      working-directory: ./backend
+      run: |
+        php bin/console debug:container --env-vars DATABASE_URL
+        php bin/console doctrine:query:sql "SELECT DATABASE()" --env=test
+
     - name: Install Frontend Dependencies
       working-directory: ./frontend
       run: npm ci
