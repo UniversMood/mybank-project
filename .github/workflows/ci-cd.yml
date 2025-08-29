@@ -14,7 +14,7 @@ jobs:
         image: mysql:8.0
         env:
           MYSQL_ROOT_PASSWORD: root_password_test
-          MYSQL_DATABASE: mybank_test
+          MYSQL_DATABASE: mybank_test  # ✅ Nom correct
           MYSQL_USER: mybank_test
           MYSQL_PASSWORD: mybank_test_password
         ports:
@@ -44,6 +44,7 @@ jobs:
         cat > .env << 'EOL'
         APP_ENV=test
         APP_SECRET=test_secret_key_for_ci_pipeline
+        # ✅ Utilisez directement le nom mybank_test
         DATABASE_URL="mysql://mybank_test:mybank_test_password@127.0.0.1:3306/mybank_test?serverVersion=8.0&charset=utf8mb4"
         CORS_ALLOW_ORIGIN='^https?://(localhost|127\.0\.0\.1)(:[0-9]+)?$'
         EOL
@@ -75,7 +76,7 @@ jobs:
     - name: Setup Database
       working-directory: ./backend
       run: |
-        php bin/console doctrine:database:create --if-not-exists
+        # ✅ La base mybank_test est déjà créée par le service MySQL
         php bin/console doctrine:schema:create
 
     - name: Install Frontend Dependencies
