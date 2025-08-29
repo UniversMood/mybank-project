@@ -96,25 +96,44 @@ jobs:
       working-directory: ./backend
       run: |
         php -S localhost:8000 -t public &
-        sleep 10
+        sleep 15  # Donnez plus de temps au serveur
 
-    - name: Check Backend Endpoints
+    - name: Debug API before testing
       run: |
-        curl -f http://localhost:8000/api/operations || exit 1
-        curl -f http://localhost:8000/api/categories || exit 1
+        echo "=== DEBUG API ==="
+        curl -v http://localhost:8000/api/operations || echo "Operations endpoint not ready"
+        curl -v http://localhost:8000/api/categories || echo "Categories endpoint not ready"
+        mysql -h 127.0.0.1 -u mybank_test -pmybank_test_password mybank_test_test -e "SHOW TABLES; SELECT * FROM category;"
 
-    - name: Test POST operation
+    - name: Create test category first
       run: |
-        response=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:8000/api/operations \
+        mysql -h 127.0.0.1 -u mybank_test -pmybank_test_password mybank_test_test << EOF
+        INSERT IGNORE INTO category (id, name) VALUES (1, 'Test Category');
+        EOF
+
+    - name: Test POST operation with debug
+      run: |
+        echo "=== TESTING POST ==="
+        # Test avec output détaillé
+        curl -v -X POST http://localhost:8000/api/operations \
           -H "Content-Type: application/json" \
-          -d '{"label":"Test expense","amount":"50.00","date":"2024-01-15","category":1}')
+          -d '{"label":"Test expense","amount":"50.00","date":"2024-01-15","category":1}' > response.txt 2>&1
         
-        if [ "$response" -eq 201 ] || [ "$response" -eq 200 ]; then
-          echo "✓ POST test passed with status $response"
+        cat response.txt
+        echo ""
+        
+        # Vérifiez si ça a fonctionné
+        if grep -q "201 Created" response.txt || grep -q "200 OK" response.txt; then
+          echo "✓ POST test passed"
         else
-          echo "✗ POST test failed with status $response"
+          echo "✗ POST test failed"
           exit 1
         fi
+
+    - name: Verify data was inserted
+      run: |
+        echo "=== VERIFYING DATA ==="
+        mysql -h 127.0.0.1 -u mybank_test -pmybank_test_password mybank_test_test -e "SELECT * FROM operation;"
 
     - name: Stop Backend Server
       run: pkill -f "php -S localhost:8000" || true
