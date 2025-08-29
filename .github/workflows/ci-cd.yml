@@ -73,17 +73,28 @@ jobs:
         FLUSH PRIVILEGES;
         EOF
 
-    - name: Setup Database
-      working-directory: ./backend
-      run: |
-        # Crée le schéma directement sans utiliser doctrine:database:create
-        php bin/console doctrine:schema:update --force --env=test
-
     - name: Debug database connection
       working-directory: ./backend
       run: |
-        php bin/console debug:container --env-vars DATABASE_URL
-        php bin/console doctrine:query:sql "SELECT DATABASE()" --env=test
+        echo "=== DEBUG DATABASE CONFIGURATION ==="
+        # Affiche la variable DATABASE_URL
+        php -r "echo getenv('DATABASE_URL'); echo PHP_EOL;"
+        
+        # Affiche la configuration Doctrine
+        php bin/console debug:config doctrine
+        
+        # Liste les bases disponibles
+        mysql -h 127.0.0.1 -u mybank_test -pmybank_test_password -e "SHOW DATABASES;"
+        
+        # Teste la connexion
+        php bin/console doctrine:query:sql "SELECT 1" || echo "Connection test failed"
+        echo "====================================="
+
+    - name: Setup Database
+      working-directory: ./backend
+      run: |
+        # Crée le schéma directement
+        php bin/console doctrine:schema:update --force --env=test
 
     - name: Install Frontend Dependencies
       working-directory: ./frontend
